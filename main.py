@@ -15,6 +15,49 @@ mydb = mysql.connector.connect(
 )
 
 
+def mark_new_jobs_old():
+    mycursor = mydb.cursor()
+    sql = "UPDATE jobs SET status = 'old' WHERE status = 'new'"
+    try:
+        mycursor.execute(sql)
+        mydb.commit()
+    except Exception:
+        print("fail")
+
+
+def remove_old_jobs():
+    mycursor = mydb.cursor()
+    sql = "DELETE FROM jobs WHERE status = 'old'"
+    try:
+        mycursor.execute(sql)
+        mydb.commit()
+    except Exception:
+        print("fail")
+
+
+def mark_job_new(href):
+    mycursor = mydb.cursor()
+    sql = "UPDATE jobs SET status = 'new' WHERE url = '" + href + "'"
+    try:
+        mycursor.execute(sql)
+        mydb.commit()
+    except Exception:
+        print("fail")
+
+
+def job_exists(href):
+    curs = mydb.cursor()
+    sql = "SELECT * FROM jobs WHERE url = '" + href + "'"
+    try:
+        curs.execute(sql)
+        res = curs.fetchone()
+        if res is not None:
+            return True
+        return False
+    except:
+        return False
+
+
 def has_more_pages(soup):
     dupetext = soup.find(class_="dupetext")
     if dupetext is not None:
@@ -33,17 +76,15 @@ def parse_listing_page(results):
 
 
 def parse_description_page(href):
-    if href is None or href["href"] is None:
-        return None
-
     sleep = random.randrange(1, 6)
     time.sleep(sleep)
+    print("sleeping: " + str(sleep))
     job = {}
-    print("scraping description page:", href["href"])
-    page = requests.get(href["href"])
+    print("scraping description page:", href)
+    page = requests.get(href)
 
     soup = BeautifulSoup(page.content, 'html.parser')
-    job["href"] = href["href"]
+    job["href"] = href
 
     job_title = soup.find(class_="jobsearch-JobInfoHeader-title-container")
     if job_title is not None:
@@ -81,14 +122,7 @@ def parse_description_page(href):
 def save_job(job):
     href = job.get("href")
 
-    sql = "SELECT * FROM jobs WHERE url = '" + href + "'"
-    curs = mydb.cursor()
-    try:
-        curs.execute(sql)
-        res = curs.fetchone()
-        if res is not None:
-            return
-    except:
+    if job_exists(href):
         return
 
     title = job.get("page_title")
@@ -108,17 +142,21 @@ def save_job(job):
         mycursor.execute(sql, val)
         mydb.commit()
     except Exception:
-        print("fail")
+        print("failed to save job")
 
 
-def remove_new():
-    mycursor = mydb.cursor()
-    sql = "DELETE FROM jobs WHERE status = 'new'"
-    try:
-        mycursor.execute(sql)
-        mydb.commit()
-    except Exception:
-        print("fail")
+def scrape_job(url):
+    href = url["href"]
+    if href is None:
+        return
+    if not job_exists(href):
+        job = parse_description_page(href)
+        if job is not None:
+            print("Saving job " + job.get("job_title"))
+            save_job(job)
+    else:
+        print("Job already exists " + href)
+        mark_job_new(href)
 
 
 def scrape(search):
@@ -132,10 +170,11 @@ def scrape(search):
         ul = soup.find("ul", class_="jobsearch-ResultsList")
         results = ul.findAll(class_="result")
         hrefs = parse_listing_page(results)
+
         for href in hrefs:
-            job = parse_description_page(href)
-            if job is not None:
-                save_job(job)
+            scrape_job(href)
+
+        # 1000 is a good amount of pages
         if has_more_pages(soup) and start < 1000:
             start += 10
             params = {'q': search.get("term"), 'start': str(start)}
@@ -144,11 +183,16 @@ def scrape(search):
             print('done scraping')
             break
 
+        sleep = random.randrange(1, 6)
+        time.sleep(sleep)
+        print("sleeping: " + str(sleep))
+
 
 def run():
-    remove_new()
+    mark_new_jobs_old()
     for search in [{'term': 'C++ Engineer'}]:
         scrape(search)
+    remove_old_jobs()
 
 
 if __name__ == '__main__':
