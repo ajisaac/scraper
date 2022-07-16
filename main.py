@@ -45,6 +45,19 @@ def mark_job_new(href):
         print("fail")
 
 
+def is_blacklisted(company):
+    curs = mydb.cursor()
+    sql = "SELECT * FROM blacklist_companies WHERE name = '" + company + "'"
+    try:
+        curs.execute(sql)
+        res = curs.fetchone()
+        if res is not None:
+            return True
+        return False
+    except:
+        return False
+
+
 def job_exists(href):
     curs = mydb.cursor()
     sql = "SELECT * FROM jobs WHERE url = '" + href + "'"
@@ -118,7 +131,6 @@ def parse_description_page(href):
 
     return job
 
-
 def save_job(job):
     href = job.get("href")
 
@@ -134,10 +146,14 @@ def save_job(job):
 
     sub = "" + job.get("subtitle")
     desc = "" + job.get("job_description")
+    term = "" + job.get("term")
+
+    if is_blacklisted(company):
+        return
 
     mycursor = mydb.cursor()
-    sql = "INSERT INTO jobs(title, url, company, subtitle, description) VALUES(%s, %s, %s, %s, %s)"
-    val = (title, href, company, sub, desc)
+    sql = "INSERT INTO jobs(title, url, company, subtitle, description, search_term) VALUES(%s, %s, %s, %s, %s, %s)"
+    val = (title, href, company, sub, desc, term)
     try:
         mycursor.execute(sql, val)
         mydb.commit()
@@ -145,13 +161,14 @@ def save_job(job):
         print("failed to save job")
 
 
-def scrape_job(url):
+def scrape_job(url, term):
     href = url["href"]
     if href is None:
         return
     if not job_exists(href):
         job = parse_description_page(href)
         if job is not None:
+            job["term"] = term
             print("Saving job " + job.get("job_title"))
             save_job(job)
     else:
@@ -172,7 +189,7 @@ def scrape(search):
         hrefs = parse_listing_page(results)
 
         for href in hrefs:
-            scrape_job(href)
+            scrape_job(href, search.get("term"))
 
         # 1000 is a good amount of pages
         if has_more_pages(soup) and start < 1000:
@@ -190,7 +207,7 @@ def scrape(search):
 
 def run():
     mark_new_jobs_old()
-    for search in [{'term': 'C++ Engineer'}]:
+    for search in [{'term': 'Java Developer'}]:
         scrape(search)
     remove_old_jobs()
 
